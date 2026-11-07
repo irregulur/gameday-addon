@@ -157,6 +157,8 @@ if [ "$MODE" = "auto" ]; then
   if command -v docker >/dev/null 2>&1; then MODE="docker"; else MODE="native"; fi
 fi
 
+printf '%s\n' "$MODE" > "$DIR/.gameday-mode"   # remembered by the Proxmox installer's --update
+
 if [ "$MODE" = "docker" ]; then start_docker; else start_native; fi
 
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"

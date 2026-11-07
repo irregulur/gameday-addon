@@ -42,6 +42,19 @@ Other knobs: `CORES`, `BRIDGE`, `CT_HOSTNAME`, `TMSTORE` (template storage),
 `NET="ip=192.168.1.50/24,gw=192.168.1.1"`, `MODE=native`. The script prints the container IP and
 the log/update/remove commands.
 
+### Update the container
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/irregulur/gameday-addon/main/proxmox.sh | bash -s -- --update
+```
+
+It finds the container by name (`gameday`), starts it if needed, pulls the latest commit inside,
+re-runs `install.sh` with the mode and port the container was installed with, and waits until
+`/health` answers before printing the URL and version. Your `.env` (secret, `PUBLIC_URL`, port) is
+kept, so the addon install link stays valid. Use `CT_HOSTNAME=other` or `CTID=203` to target a
+different container; `--help` lists the options. Packaged updates also work by hand inside the
+container: `cd /opt/gameday && git pull && ./install.sh`.
+
 ### Inside an existing container, VM or server
 
 `install.sh` works on Debian/Ubuntu — a Proxmox **LXC container**, a VM, or bare metal.

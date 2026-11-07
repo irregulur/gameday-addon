@@ -15,6 +15,9 @@
 #   NET="ip=192.168.1.50/24,gw=192.168.1.1"   static address instead of DHCP
 #   MODE=native                  Node 22 + systemd inside the container instead of Docker
 #   TMSTORE=local                storage that holds the Debian template
+#
+# Update an existing container (pulls the latest version, keeps settings and port):
+#   curl -fsSL https://raw.githubusercontent.com/irregulur/gameday-addon/main/proxmox.sh | bash -s -- --update
 set -euo pipefail
 
 REPO="https://github.com/irregulur/gameday-addon.git"
@@ -30,6 +33,28 @@ PORT="${PORT:-7000}"
 NET="${NET:-ip=dhcp}"
 MODE="${MODE:-docker}"
 UNATTENDED="${UNATTENDED:-0}"
+
+usage() {
+  cat <<EOF
+GameDay installer for Proxmox VE
+
+  install (default)   create a Debian 12 container and install GameDay in it
+  --update, -u        pull the latest version into the existing container
+  --help, -h          this text
+
+Settings come from the environment, e.g. STORAGE=local-zfs PORT=8080 bash -s -- --update
+EOF
+}
+
+ACTION=install
+for arg in "$@"; do
+  case "$arg" in
+    -u|--update) ACTION=update ;;
+    -h|--help|help) ACTION=help ;;
+  esac
+done
+
+if [ "$ACTION" = "help" ]; then usage; exit 0; fi
 
 BT="GameDay · College Football & UFC"
 USEGUI=0
@@ -78,6 +103,79 @@ free_gb() { storages_for rootdir | awk -v s="$1" '$1==s{print $3}'; }
 next_ctid() { pvesh get /cluster/nextid 2>/dev/null || echo 100; }
 
 bridges() { ls /sys/class/net 2>/dev/null | grep -E '^(vmbr|bond)[0-9]+$' || echo vmbr0; }
+
+# ---------------------------------------------------------------- update
+find_ct() {  # explicit CTID, else the first container carrying $CT_HOSTNAME
+  if [ -n "${CTID:-}" ]; then printf '%s\n' "$CTID"; return; fi
+  pct list 2>/dev/null | awk -v n="$CT_HOSTNAME" 'NR>1 && $NF==n {print $1; exit}'
+}
+
+wait_net() {
+  printf '  Waiting for the container network…\n'
+  for i in $(seq 1 60); do
+    if cx "getent hosts deb.debian.org" >/dev/null 2>&1; then c_g "network up"; return 0; fi
+    sleep 2
+  done
+  c_r "container has no network — check bridge $BRIDGE / DHCP"
+}
+
+wait_health() {  # $1 = port
+  printf '  Waiting for GameDay to answer (the build takes a few minutes)'
+  for i in $(seq 1 300); do
+    if cx "curl -fs -m 3 http://127.0.0.1:$1/health" >/dev/null 2>&1; then printf '\n'; c_g "GameDay is answering"; return 0; fi
+    [ $((i % 10)) -eq 0 ] && printf '.'
+    sleep 2
+  done
+  printf '\n'
+  return 1
+}
+
+ct_ip() { cx "ip -4 addr show eth0" | awk '/inet /{sub(/\/.*/,"",$2); print $2; exit}'; }
+
+do_update() {
+  CTID="$(find_ct)"
+  [ -n "$CTID" ] || c_r "no container named \"$CT_HOSTNAME\" here — run the installer without --update first"
+  pct status "$CTID" >/dev/null 2>&1 || c_r "container $CTID does not exist"
+  if [ "$(pct status "$CTID" | awk '{print $2}')" != "running" ]; then
+    printf '  Starting container %s…\n' "$CTID"
+    pct start "$CTID" || c_r "container $CTID did not start"
+    sleep 3
+    wait_net
+  fi
+
+  PORT="$(cx "sed -n 's/^PORT=//p' /opt/gameday/.env 2>/dev/null" | tr -d '\r' | head -1)"
+  is_num "${PORT:-}" || PORT=7000
+  FLAVOUR="$(cx "cat /opt/gameday/.gameday-mode 2>/dev/null" | tr -d '\r' | head -1)"
+  if [ "$FLAVOUR" != "docker" ] && [ "$FLAVOUR" != "native" ]; then
+    if cx "docker inspect gameday >/dev/null 2>&1"; then FLAVOUR=docker; else FLAVOUR=native; fi
+  fi
+
+  printf '\n  Updating GameDay in container %s (%s, port %s)\n' "$CTID" "$FLAVOUR" "$PORT"
+  if ! cx "test -d /opt/gameday/.git"; then
+    c_r "this container was installed from a local folder, not from GitHub — re-run the installer from that folder"
+  fi
+  if ! cx "cd /opt/gameday && git fetch --depth 1 origin && git reset --hard FETCH_HEAD" >/dev/null 2>&1; then
+    c_r "could not fetch the update — check the container's network (pct exec $CTID -- git -C /opt/gameday status)"
+  fi
+  VERSION="$(cx "sed -n 's/.*\"version\": *\"\([^\"]*\)\".*/\1/p' /opt/gameday/package.json | head -1")"
+
+  cx "cd /opt/gameday && ./install.sh --$FLAVOUR --port $PORT" | tail -15
+  IP="$(ct_ip)"
+  if ! wait_health "$PORT"; then
+    c_r "GameDay did not come back on port $PORT — logs: pct exec $CTID -- $([ "$FLAVOUR" = docker ] && echo 'docker logs -f gameday' || echo 'journalctl -u gameday -f')"
+  fi
+  c_g "updated to ${VERSION:-the latest version}"
+  cat <<EOF
+
+  Open:      http://${IP:-$(hostname -I | awk '{print $1}')}:$PORT/
+  Version:   ${VERSION:-unknown}
+  Logs:      pct exec $CTID -- $([ "$FLAVOUR" = docker ] && echo 'docker logs -f gameday' || echo 'journalctl -u gameday -f')
+  Settings:  $([ "$FLAVOUR" = docker ] && echo "docker compose down" || echo 'systemctl stop gameday') and re-run the installer to change them
+EOF
+  exit 0
+}
+
+[ "$ACTION" = "update" ] && do_update
 
 # ---------------------------------------------------------------- settings
 if [ "$USEGUI" = "1" ]; then
@@ -222,19 +320,19 @@ fi
 if pct status "$CTID" >/dev/null 2>&1; then
   c_r "container $CTID already exists — pick another id (CTID=...)"
 fi
-EXISTING="$(pct list 2>/dev/null | awk -v n="$CT_HOSTNAME" 'NR>1 && $3==n {print $1; exit}')"
+EXISTING="$(pct list 2>/dev/null | awk -v n="$CT_HOSTNAME" 'NR>1 && $NF==n {print $1; exit}')"
 if [ -n "$EXISTING" ]; then
   if [ "$USEGUI" = "1" ]; then
     whiptail --backtitle "$BT" --title "Already installed" --msgbox \
       "A container named $CT_HOSTNAME already exists (id $EXISTING).
 
 Update it instead:
-  pct exec $EXISTING -- bash -c 'cd /opt/gameday && git pull && ./install.sh'
+  curl -fsSL https://raw.githubusercontent.com/irregulur/gameday-addon/main/proxmox.sh | bash -s -- --update
 
 Or run this installer again with CT_HOSTNAME=<another name>." 14 78
   else
-    printf '\n  A container named %s already exists (id %s).\n  Update it: pct exec %s -- bash -c "cd /opt/gameday && git pull && ./install.sh"\n\n' \
-      "$CT_HOSTNAME" "$EXISTING" "$EXISTING"
+    printf '\n  A container named %s already exists (id %s).\n  Update it:  curl -fsSL https://raw.githubusercontent.com/irregulur/gameday-addon/main/proxmox.sh | bash -s -- --update\n\n' \
+      "$CT_HOSTNAME" "$EXISTING"
   fi
   exit 0
 fi
@@ -249,15 +347,9 @@ pct create "$CTID" "$TMSTORE:vztmpl/$TNAME" \
   --unprivileged 1 --onboot 1 --start 1 >/dev/null
 c_g "container $CTID \"$CT_HOSTNAME\" created on $STORAGE"
 
-printf '  Waiting for the container network…\n'
-for i in $(seq 1 60); do
-  if cx "getent hosts deb.debian.org" >/dev/null 2>&1; then break; fi
-  sleep 2
-  if [ "$i" -eq 60 ]; then c_r "container has no network — check bridge $BRIDGE / DHCP"; fi
-done
-c_g "network up"
+wait_net
 
-IP="$(cx "ip -4 addr show eth0" | awk '/inet /{sub(/\/.*/,"",$2); print $2; exit}')"
+IP="$(ct_ip)"
 [ -n "$IP" ] && printf '  Container address: http://%s:%s/  (answers once the build below finishes)\n' "$IP" "$PORT"
 
 printf '  Installing GameDay inside the container…\n'
@@ -271,18 +363,7 @@ else
   RUNLOG="docker logs -f gameday"
 fi
 
-printf '  Waiting for GameDay to answer (the container build takes a few minutes)'
-up=0
-for i in $(seq 1 300); do
-  if cx "curl -fs -m 3 http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then up=1; break; fi
-  [ $((i % 10)) -eq 0 ] && printf '.'
-  sleep 2
-done
-printf '\n'
-if [ "$up" != "1" ]; then
-  c_r "GameDay did not start within 10 minutes — check: pct exec $CTID -- $RUNLOG"
-fi
-c_g "GameDay is answering"
+wait_health "$PORT" || c_r "GameDay did not start within 10 minutes — check: pct exec $CTID -- $RUNLOG"
 
 echo
 if command -v whiptail >/dev/null && [ "$USEGUI" = "1" ]; then
@@ -296,7 +377,7 @@ if command -v whiptail >/dev/null && [ "$USEGUI" = "1" ]; then
 
   Shell       pct enter $CTID
   Logs        pct exec $CTID -- $RUNLOG
-  Update      pct exec $CTID -- bash -c 'cd /opt/gameday && git pull && ./install.sh --$MODE --port $PORT'
+  Update      curl -fsSL https://raw.githubusercontent.com/irregulur/gameday-addon/main/proxmox.sh | bash -s -- --update
   Remove      pct stop $CTID && pct destroy $CTID
 
   For HTTPS, put it behind a reverse proxy and re-run the installer
@@ -308,7 +389,7 @@ else
   Open:      http://${IP}:$PORT/
   Shell:     pct enter $CTID
   Logs:      pct exec $CTID -- $RUNLOG
-  Update:    pct exec $CTID -- bash -c 'cd /opt/gameday && git pull && ./install.sh --$MODE --port $PORT'
+  Update:    curl -fsSL https://raw.githubusercontent.com/irregulur/gameday-addon/main/proxmox.sh | bash -s -- --update
   Remove:    pct stop $CTID && pct destroy $CTID
 
   For HTTPS, put it behind a reverse proxy and re-run the installer inside with
