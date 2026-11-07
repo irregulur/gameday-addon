@@ -97,7 +97,7 @@ if [ "$GUI" = "1" ] && [ "$advanced" = "1" ]; then
   is_num "$RAM" || c_r "memory must be a number"
   CTID=$(input "Container ID" "Leave as is for the next free id" "$(next_ctid)") || exit 0
   is_num "$CTID" || c_r "container id must be a number"
-  CT_HOSTNAME=$(input "Hostname" "Container hostname" "$CT_HOSTNAME") || exit 0
+  CT_HOSTNAME=$(input "Container name" "Name of the container in Proxmox (its hostname)" "$CT_HOSTNAME") || exit 0
   PORT=$(input "Port" "Port GameDay listens on inside the container" "$PORT") || exit 0
   is_num "$PORT" || c_r "port must be a number"
 
@@ -144,7 +144,8 @@ fi
 if [ "$GUI" = "1" ]; then
   confirm "Confirm" "GameDay will be installed with these settings:
 
-  Container ID   $CTID  ($CT_HOSTNAME)
+  Container ID   $CTID
+  Name           $CT_HOSTNAME
   Storage pool   $STORAGE  ($DISK GB, $AVAIL GB free)
   Resources      $CORES vCPU, ${RAM} MB RAM
   Network        $BRIDGE, $NET
@@ -176,6 +177,22 @@ fi
 if pct status "$CTID" >/dev/null 2>&1; then
   c_r "container $CTID already exists — pick another id (CTID=...)"
 fi
+EXISTING="$(pct list 2>/dev/null | awk -v n="$CT_HOSTNAME" 'NR>1 && $3==n {print $1; exit}')"
+if [ -n "$EXISTING" ]; then
+  if [ "$GUI" = "1" ]; then
+    whiptail --backtitle "$BT" --title "Already installed" --msgbox \
+      "A container named $CT_HOSTNAME already exists (id $EXISTING).
+
+Update it instead:
+  pct exec $EXISTING -- bash -c 'cd /opt/gameday && git pull && ./install.sh'
+
+Or run this installer again with CT_HOSTNAME=<another name>." 14 78
+  else
+    printf '\n  A container named %s already exists (id %s).\n  Update it: pct exec %s -- bash -c "cd /opt/gameday && git pull && ./install.sh"\n\n' \
+      "$CT_HOSTNAME" "$EXISTING" "$EXISTING"
+  fi
+  exit 0
+fi
 
 printf '\n  Creating container %s on %s…\n' "$CTID" "$STORAGE"
 pct create "$CTID" "$TMSTORE:vztmpl/$TNAME" \
@@ -185,7 +202,7 @@ pct create "$CTID" "$TMSTORE:vztmpl/$TNAME" \
   --net0 "name=eth0,bridge=$BRIDGE,$NET" \
   --features nesting=1,keyctl=1 \
   --unprivileged 1 --onboot 1 --start 1 >/dev/null
-c_g "container $CTID created on $STORAGE"
+c_g "container $CTID \"$CT_HOSTNAME\" created on $STORAGE"
 
 printf '  Waiting for the container network…\n'
 for i in $(seq 1 60); do
@@ -219,7 +236,7 @@ echo
 if command -v whiptail >/dev/null && [ "$GUI" = "1" ]; then
   whiptail --backtitle "$BT" --title "Done" --msgbox "GameDay is running.
 
-  Container   $CTID ($CT_HOSTNAME) on $STORAGE
+  Container   $CTID "$CT_HOSTNAME" on $STORAGE
   Open        http://${IP}:$PORT/
 
   Addon link  Open it, enter your Xtream IPTV login,
@@ -234,7 +251,7 @@ if command -v whiptail >/dev/null && [ "$GUI" = "1" ]; then
   inside with --url https://your.domain" 26 78
 else
   cat <<EOF
-  GameDay is running on container $CTID ($CT_HOSTNAME, storage $STORAGE)
+  GameDay is running: container $CTID "$CT_HOSTNAME" on $STORAGE
 
   Open:      http://${IP}:$PORT/
   Shell:     pct enter $CTID
