@@ -138,6 +138,11 @@ which is what makes header-locked or IP-bound links playable in players that ign
 Before streams are returned they are probed once (first bytes only, 3-minute cache) so dead links
 never reach the player.
 
+Every HTTP stream goes through the relay by default (**Configure → "Relay all HTTP streams through
+this server"**): scraped CDNs check `Referer`/`Origin` and many players ignore those hints, which
+shows up as a spinner that never ends. Untick it to send clients the raw CDN links instead — that
+saves bandwidth but only works in players that honour `proxyHeaders`.
+
 ## Layout
 
 ```

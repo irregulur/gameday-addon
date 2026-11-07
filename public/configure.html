@@ -71,7 +71,7 @@
   <section>
     <h2>HTTP sources</h2>
     <div class="grid" id="sources"></div>
-    <label class="check" style="margin-top:12px"><input type="checkbox" id="httpProxy"> Relay all HTTP streams through this server (fixes players that ignore headers)</label>
+    <label class="check" style="margin-top:12px"><input type="checkbox" id="httpProxy" checked> Relay all HTTP streams through this server (fixes players that ignore headers)</label>
   </section>
 
   <div class="actions">
@@ -146,7 +146,7 @@ $('install').onclick = async () => {
   if (cfg.xtream) { $('server').value = cfg.xtream.server; $('username').value = cfg.xtream.username; $('password').value = cfg.xtream.password; }
   $('iptvExt').value = cfg.iptvExt; $('cfbScope').value = cfg.cfbScope;
   if (![...$('tz').options].some((o) => o.value === cfg.tz)) $('tz').add(new Option(cfg.tz, cfg.tz));
-  $('tz').value = cfg.tz; $('showFinished').checked = cfg.showFinished; $('httpProxy').checked = cfg.httpProxy;
+  $('tz').value = cfg.tz; $('showFinished').checked = cfg.showFinished; $('httpProxy').checked = cfg.httpProxy !== false;
 })();
 </script>
 </body>

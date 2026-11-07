@@ -26,7 +26,7 @@ const DEFAULTS = {
   sources: null, // null = all HTTP providers; else array of provider ids
   cfbScope: 'fbs', // 'fbs' | 'power4' | 'top25'
   showFinished: false,
-  httpProxy: false, // route every HTTP-scraped stream through this server's HLS relay
+  httpProxy: true, // route every HTTP-scraped stream through this server's HLS relay
 };
 
 function seal(obj) {
@@ -67,7 +67,7 @@ function sanitize(input = {}) {
   if (Array.isArray(input.sources)) cfg.sources = input.sources.map(String);
   if (['fbs', 'power4', 'top25'].includes(input.cfbScope)) cfg.cfbScope = input.cfbScope;
   cfg.showFinished = !!input.showFinished;
-  cfg.httpProxy = !!input.httpProxy;
+  cfg.httpProxy = input.httpProxy === undefined ? DEFAULTS.httpProxy : !!input.httpProxy;
   return cfg;
 }
 

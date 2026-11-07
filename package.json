@@ -1,6 +1,6 @@
 {
   "name": "gameday",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Nuvio/Stremio addon: College Football + UFC with free HTTP sources and your own Xtream IPTV",
   "main": "src/server.js",
   "scripts": {
