@@ -32,7 +32,7 @@ MODE="${MODE:-docker}"
 UNATTENDED="${UNATTENDED:-0}"
 
 BT="GameDay · College Football & UFC"
-GUI=0
+USEGUI=0
 c_g() { printf '\n\033[1;32m  ✔ %s\033[0m\n' "$*"; }
 c_r() { printf '\n\033[1;31m  ✖ Error: %s\033[0m\n' "$*" >&2; exit 1; }
 cx()  { pct exec "$CTID" -- bash -c "$*"; }
@@ -40,7 +40,28 @@ cx()  { pct exec "$CTID" -- bash -c "$*"; }
 # ---------------------------------------------------------------- preflight
 [ -d /etc/pve ] && command -v pct >/dev/null || c_r "run this on the Proxmox VE host shell"
 [ "$(id -u)" -eq 0 ] || c_r "run as root"
-if [ "$UNATTENDED" != "1" ] && [ -t 0 ] && [ -t 1 ] && command -v whiptail >/dev/null; then GUI=1; fi
+
+INTERACTIVE=0
+if [ "$UNATTENDED" != "1" ] && { [ -t 0 ] || [ -t 1 ]; }; then INTERACTIVE=1; fi
+[ "${TEXT:-0}" = "1" ] && [ "$UNATTENDED" != "1" ] && INTERACTIVE=1   # TEXT=1: plain prompts, no menus
+if [ "$INTERACTIVE" = "1" ] && ! command -v whiptail >/dev/null 2>&1; then
+  printf '  Installing whiptail for the menus…\n'
+  DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 || true
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq whiptail >/dev/null 2>&1 || true
+fi
+# whiptail menus when possible; otherwise the storage pool is still asked in plain text
+if [ "$INTERACTIVE" = "1" ] && [ "${TEXT:-0}" != "1" ] && command -v whiptail >/dev/null 2>&1 && [ -t 0 ]; then
+  if whiptail --backtitle "$BT" --title "GameDay" --msgbox "GameDay · College Football & UFC
+
+ESPN supplies the schedule, cards and scores.
+Streams come from your Xtream IPTV first, then free HTTP sources.
+
+Next: pick the storage pool for the container." 14 72; then
+    USEGUI=1
+  else
+    USEGUI=0   # whiptail failed to draw (255) — fall back to plain text prompts
+  fi
+fi
 
 menu()   { whiptail --backtitle "$BT" --title "$1" --menu "$2" 22 78 12 "${@:3}" 3>&1 1>&2 2>&3; }
 radio()  { whiptail --backtitle "$BT" --title "$1" --radiolist "$2" 20 78 8 "${@:3}" 3>&1 1>&2 2>&3; }
@@ -59,7 +80,7 @@ next_ctid() { pvesh get /cluster/nextid 2>/dev/null || echo 100; }
 bridges() { ls /sys/class/net 2>/dev/null | grep -E '^(vmbr|bond)[0-9]+$' || echo vmbr0; }
 
 # ---------------------------------------------------------------- settings
-if [ "$GUI" = "1" ]; then
+if [ "$USEGUI" = "1" ]; then
   printf '\033[1;36m
    GameDay · College Football & UFC
    ESPN schedule and cards, streams from your Xtream IPTV + free HTTP sources
@@ -72,23 +93,39 @@ else
   advanced=0
 fi
 
-# storage pool (always asked in the GUI: it must be a pool that supports containers)
-if [ "$GUI" = "1" ] && [ -z "$STORAGE" ]; then
+# storage pool: this is the one thing that must be asked, in the GUI or in plain text
+if [ -z "$STORAGE" ] && [ "$INTERACTIVE" = "1" ]; then
   mapfile -t rows < <(storages_for rootdir | sort -k3 -nr)
-  [ "${#rows[@]}" -gt 0 ] || c_r "no storage pool accepts container disks (check Datacenter → Storage)"
-  # default = the pool with the most free space
-  default_store=$(printf '%s\n' "${rows[@]}" | sort -k3 -n | tail -1 | awk '{print $1}')
-  items=()
-  for row in "${rows[@]}"; do
-    set -- $row
-    tag="$1"; desc="$2 · $3 GB free"
-    [ "$1" = "$default_store" ] && desc="$desc  ← recommended"
-    items+=("$tag" "$desc")
-  done
-  STORAGE=$(menu "Storage pool" "Where should the container disk be created?\n(name · type · free space)" "${items[@]}") || exit 0
+  [ "${#rows[@]}" -gt 0 ] || c_r "no storage pool accepts container disks (check Datacenter -> Storage)"
+  if [ "$USEGUI" = "1" ]; then
+    items=()
+    first=1
+    for row in "${rows[@]}"; do
+      set -- $row
+      desc="$2 · $3 GB free"
+      [ "$first" = "1" ] && desc="$desc  ← recommended"
+      first=0
+      items+=("$1" "$desc")
+    done
+    STORAGE=$(menu "Storage pool" "Where should the container disk be created?\n(pool · type · free space)" "${items[@]}") || exit 0
+  else
+    printf '\n  Storage pools that can hold the container:\n\n'
+    i=1
+    for row in "${rows[@]}"; do
+      set -- $row
+      printf '   %d) %-16s %-8s %s GB free\n' "$i" "$1" "$2" "$3"
+      i=$((i + 1))
+    done
+    printf '\n  Choose the pool for the container disk [1-%s] (Enter = 1): ' "${#rows[@]}"
+    read -r ans || ans=""
+    [ -z "$ans" ] && ans=1
+    is_num "$ans" || c_r "\"$ans\" is not a number"
+    [ "$ans" -ge 1 ] && [ "$ans" -le "${#rows[@]}" ] || c_r "pick a number between 1 and ${#rows[@]}"
+    STORAGE=$(printf '%s\n' "${rows[$((ans - 1))]}" | awk '{print $1}')
+  fi
 fi
 
-if [ "$GUI" = "1" ] && [ "$advanced" = "1" ]; then
+if [ "$USEGUI" = "1" ] && [ "$advanced" = "1" ]; then
   DISK=$(input "Disk size" "Container disk size in GB (pool: $STORAGE, $(free_gb "$STORAGE") GB free)" "$DISK") || exit 0
   is_num "$DISK" || c_r "disk size must be a number"
   CORES=$(input "CPU cores" "CPU cores for the container" "$CORES") || exit 0
@@ -141,7 +178,15 @@ if [ -n "$AVAIL" ] && [ "$DISK" -gt "$AVAIL" ]; then
   c_r "$DISK GB requested but only $AVAIL GB free on $STORAGE"
 fi
 
-if [ "$GUI" = "1" ]; then
+if [ "$USEGUI" = "0" ] && [ "$INTERACTIVE" = "1" ] && [ "$UNATTENDED" != "1" ]; then
+  printf '\n  Install with these settings?\n\n'
+  printf '   Container   %s \"%s\"\n   Storage     %s (%s GB, %s GB free)\n   Resources   %s vCPU, %s MB RAM\n   Network     %s, %s\n   Port        %s\n   Runtime     %s\n\n  [Enter] install   [n] abort: ' \
+    "$CTID" "$CT_HOSTNAME" "$STORAGE" "$DISK" "$AVAIL" "$CORES" "$RAM" "$BRIDGE" "$NET" "$PORT" "$MODE"
+  read -r ans || ans=""
+  case "$ans" in n|N|no|NO) printf '  Aborted.\n\n'; exit 0 ;; esac
+fi
+
+if [ "$USEGUI" = "1" ]; then
   confirm "Confirm" "GameDay will be installed with these settings:
 
   Container ID   $CTID
@@ -179,7 +224,7 @@ if pct status "$CTID" >/dev/null 2>&1; then
 fi
 EXISTING="$(pct list 2>/dev/null | awk -v n="$CT_HOSTNAME" 'NR>1 && $3==n {print $1; exit}')"
 if [ -n "$EXISTING" ]; then
-  if [ "$GUI" = "1" ]; then
+  if [ "$USEGUI" = "1" ]; then
     whiptail --backtitle "$BT" --title "Already installed" --msgbox \
       "A container named $CT_HOSTNAME already exists (id $EXISTING).
 
@@ -233,7 +278,7 @@ done
 IP="$(cx "ip -4 addr show eth0" | awk '/inet /{sub(/\/.*/,"",$2); print $2; exit}')"
 
 echo
-if command -v whiptail >/dev/null && [ "$GUI" = "1" ]; then
+if command -v whiptail >/dev/null && [ "$USEGUI" = "1" ]; then
   whiptail --backtitle "$BT" --title "Done" --msgbox "GameDay is running.
 
   Container   $CTID "$CT_HOSTNAME" on $STORAGE

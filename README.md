@@ -25,6 +25,10 @@ It shows the usual helper-script menus (whiptail):
 - **Advanced settings** — storage, disk size, CPU/RAM, container id, hostname, port, bridge,
   DHCP or a static address, and Docker vs Node+systemd inside the container.
 
+The pool is always asked: if `whiptail` is missing the script installs it, and if there is no
+terminal at all you get a numbered list instead (`TEXT=1` forces the plain prompts). Nothing is
+created before you confirm.
+
 Defaults are 2 vCPU / 2 GB RAM / 6 GB disk, DHCP on `vmbr0`, Docker inside the container. Nothing
 is created until you confirm. Everything can also be set from the command line (skips the menus
 when combined with `UNATTENDED=1`):
