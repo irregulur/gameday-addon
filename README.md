@@ -18,16 +18,25 @@ container and installs GameDay inside it:
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/irregulur/gameday-addon/main/proxmox.sh)"
 ```
 
-Defaults: 2 vCPU / 2 GB RAM / 6 GB disk on `local-lvm`, DHCP on `vmbr0`, Docker inside the
-container. Override by prefixing the command:
+It shows the usual helper-script menus (whiptail):
+
+- **Default settings** — asks only where to put it: every pool that accepts container disks, with
+  its free space (the roomiest one is preselected). Then a summary to confirm.
+- **Advanced settings** — storage, disk size, CPU/RAM, container id, hostname, port, bridge,
+  DHCP or a static address, and Docker vs Node+systemd inside the container.
+
+Defaults are 2 vCPU / 2 GB RAM / 6 GB disk, DHCP on `vmbr0`, Docker inside the container. Nothing
+is created until you confirm. Everything can also be set from the command line (skips the menus
+when combined with `UNATTENDED=1`):
 
 ```bash
-RAM=4096 DISK=8 CTID=205 STORAGE=local-zfs \
+STORAGE=local-zfs DISK=12 RAM=4096 CTID=205 PORT=8080 \
   bash -c "$(curl -fsSL https://raw.githubusercontent.com/irregulur/gameday-addon/main/proxmox.sh)"
 ```
 
-Other knobs: `BRIDGE`, `HOSTNAME`, `PORT`, `NET="ip=192.168.1.50/24,gw=192.168.1.1"`, and
-`MODE=native` to skip Docker. The script prints the container IP, log/update/remove commands.
+Other knobs: `CORES`, `BRIDGE`, `CT_HOSTNAME`, `TMSTORE` (template storage),
+`NET="ip=192.168.1.50/24,gw=192.168.1.1"`, `MODE=native`. The script prints the container IP and
+the log/update/remove commands.
 
 ### Inside an existing container, VM or server
 
