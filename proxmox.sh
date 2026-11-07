@@ -7,9 +7,14 @@
 # Shows the same kind of menus as the Proxmox helper scripts: pick the storage pool,
 # disk size, resources, network and install mode.
 #
-# Unattended (no menus), any of these can be set in front of the command:
-#   STORAGE=local-zfs DISK=8 RAM=4096 CORES=4 CTID=205 BRIDGE=vmbr1 PORT=8080 \
-#   NET="ip=192.168.1.50/24,gw=192.168.1.1" MODE=native UNATTENDED=1 bash -c "$(curl ...)"
+# Without the menus, set any of these in front of the command (or add UNATTENDED=1):
+#   STORAGE=local-zfs            pool for the container disk (default: roomiest one)
+#   DISK=12 CORES=4 RAM=4096     disk size and resources
+#   CTID=201 CT_HOSTNAME=gameday container id and hostname
+#   BRIDGE=vmbr1 PORT=8080       bridge and port
+#   NET="ip=192.168.1.50/24,gw=192.168.1.1"   static address instead of DHCP
+#   MODE=native                  Node 22 + systemd inside the container instead of Docker
+#   TMSTORE=local                storage that holds the Debian template
 set -euo pipefail
 
 REPO="https://github.com/irregulur/gameday-addon.git"
