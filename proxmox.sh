@@ -257,6 +257,9 @@ for i in $(seq 1 60); do
 done
 c_g "network up"
 
+IP="$(cx "ip -4 addr show eth0" | awk '/inet /{sub(/\/.*/,"",$2); print $2; exit}')"
+[ -n "$IP" ] && printf '  Container address: http://%s:%s/  (answers once the build below finishes)\n' "$IP" "$PORT"
+
 printf '  Installing GameDay inside the container…\n'
 cx "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git ca-certificates curl" >/dev/null
 cx "rm -rf /opt/gameday && git clone --depth 1 '$REPO' /opt/gameday" >/dev/null
@@ -268,14 +271,18 @@ else
   RUNLOG="docker logs -f gameday"
 fi
 
-printf '  Waiting for GameDay to answer…\n'
-for i in $(seq 1 150); do
-  if cx "curl -fs -m 3 http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then break; fi
+printf '  Waiting for GameDay to answer (the container build takes a few minutes)'
+up=0
+for i in $(seq 1 300); do
+  if cx "curl -fs -m 3 http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then up=1; break; fi
+  [ $((i % 10)) -eq 0 ] && printf '.'
   sleep 2
-  if [ "$i" -eq 150 ]; then c_r "GameDay did not start — check: pct exec $CTID -- $RUNLOG"; fi
 done
-
-IP="$(cx "ip -4 addr show eth0" | awk '/inet /{sub(/\/.*/,"",$2); print $2; exit}')"
+printf '\n'
+if [ "$up" != "1" ]; then
+  c_r "GameDay did not start within 10 minutes — check: pct exec $CTID -- $RUNLOG"
+fi
+c_g "GameDay is answering"
 
 echo
 if command -v whiptail >/dev/null && [ "$USEGUI" = "1" ]; then
