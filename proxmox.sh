@@ -35,7 +35,7 @@ BT="GameDay · College Football & UFC"
 USEGUI=0
 c_g() { printf '\n\033[1;32m  ✔ %s\033[0m\n' "$*"; }
 c_r() { printf '\n\033[1;31m  ✖ Error: %s\033[0m\n' "$*" >&2; exit 1; }
-cx()  { pct exec "$CTID" -- bash -c "$*"; }
+cx()  { pct exec "$CTID" -- env LANG=C.UTF-8 LC_ALL=C.UTF-8 DEBIAN_FRONTEND=noninteractive bash -c "$*"; }
 
 # ---------------------------------------------------------------- preflight
 [ -d /etc/pve ] && command -v pct >/dev/null || c_r "run this on the Proxmox VE host shell"
