@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GameDay · CFB &amp; UFC</title>
+<style>
+  :root { --bg:#0d0f14; --card:#161a22; --line:#262c38; --fg:#e8ebf1; --mute:#8b93a5; --acc:#e11d2a; --ok:#22c55e; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width:720px; margin:0 auto; padding:32px 20px 64px; }
+  h1 { margin:0 0 4px; font-size:28px; letter-spacing:.5px; }
+  h1 span { color:var(--acc); }
+  p.sub { margin:0 0 24px; color:var(--mute); }
+  section { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px; margin-bottom:16px; }
+  h2 { margin:0 0 12px; font-size:16px; text-transform:uppercase; letter-spacing:1px; color:var(--mute); }
+  label { display:block; margin:10px 0 4px; font-size:13px; color:var(--mute); }
+  input[type=text], input[type=password], select { width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--line); background:#0f1218; color:var(--fg); font-size:15px; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .check { display:flex; align-items:center; gap:8px; margin:6px 0; color:var(--fg); font-size:14px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:4px 12px; }
+  button { padding:11px 18px; border-radius:8px; border:0; background:var(--acc); color:#fff; font-weight:600; font-size:15px; cursor:pointer; }
+  button.ghost { background:transparent; border:1px solid var(--line); color:var(--fg); }
+  .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
+  .msg { margin-top:10px; font-size:14px; }
+  .msg.ok { color:var(--ok); } .msg.err { color:#f87171; }
+  #out { display:none; }
+  code { display:block; word-break:break-all; background:#0f1218; padding:10px; border-radius:8px; border:1px solid var(--line); font-size:13px; }
+  .hint { font-size:12px; color:var(--mute); margin-top:6px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Game<span>Day</span></h1>
+  <p class="sub">College Football &amp; UFC for Nuvio / Stremio. Your IPTV channels come first, free HTTP sources after.</p>
+
+  <section>
+    <h2>IPTV · Xtream Codes</h2>
+    <label for="server">Server URL</label>
+    <input type="text" id="server" placeholder="http://provider.example:8080" autocomplete="off">
+    <div class="row">
+      <div><label for="username">Username</label><input type="text" id="username" autocomplete="off"></div>
+      <div><label for="password">Password</label><input type="password" id="password" autocomplete="off"></div>
+    </div>
+    <label for="iptvExt">Stream format</label>
+    <select id="iptvExt"><option value="m3u8">HLS (.m3u8)</option><option value="ts">MPEG-TS (.ts)</option></select>
+    <div class="actions"><button class="ghost" id="test">Test login</button></div>
+    <div class="msg" id="testMsg"></div>
+    <div class="hint">Credentials are encrypted into your install link; nothing is stored on the server.</div>
+  </section>
+
+  <section>
+    <h2>Games</h2>
+    <div class="row">
+      <div>
+        <label for="cfbScope">College football</label>
+        <select id="cfbScope">
+          <option value="fbs">All FBS games</option>
+          <option value="power4">Power 4 + Notre Dame</option>
+          <option value="top25">Top 25 games only</option>
+        </select>
+      </div>
+      <div>
+        <label for="tz">Time zone</label>
+        <select id="tz"></select>
+      </div>
+    </div>
+    <label class="check"><input type="checkbox" id="showFinished"> Keep finished games in the list</label>
+  </section>
+
+  <section>
+    <h2>HTTP sources</h2>
+    <div class="grid" id="sources"></div>
+    <label class="check" style="margin-top:12px"><input type="checkbox" id="httpProxy"> Relay all HTTP streams through this server (fixes players that ignore headers)</label>
+  </section>
+
+  <div class="actions">
+    <button id="install">Generate install link</button>
+  </div>
+
+  <section id="out" style="margin-top:16px">
+    <h2>Install</h2>
+    <code id="url"></code>
+    <div class="actions">
+      <button id="open">Open in Stremio</button>
+      <button class="ghost" id="copy">Copy link</button>
+    </div>
+    <div class="hint">In Nuvio: Settings → Addons → paste the link.</div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const ZONES = ['America/New_York','America/Chicago','America/Denver','America/Phoenix','America/Los_Angeles','America/Anchorage','Pacific/Honolulu','Europe/London','Europe/Berlin','Australia/Sydney','UTC'];
+
+(function initTz() {
+  const local = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zones = ZONES.includes(local) ? ZONES : [local, ...ZONES];
+  $('tz').innerHTML = zones.map((z) => `<option>${z}</option>`).join('');
+  $('tz').value = local || 'America/New_York';
+})();
+
+async function loadSources(selected) {
+  const list = await fetch('/api/providers').then((r) => r.json());
+  $('sources').innerHTML = list.map((p) =>
+    `<label class="check"><input type="checkbox" value="${p.id}" ${!selected || selected.includes(p.id) ? 'checked' : ''}> ${p.name}</label>`).join('');
+}
+
+function collect() {
+  const boxes = [...$('sources').querySelectorAll('input')];
+  const sources = boxes.filter((b) => b.checked).map((b) => b.value);
+  return {
+    xtream: { server: $('server').value, username: $('username').value, password: $('password').value },
+    iptvExt: $('iptvExt').value,
+    cfbScope: $('cfbScope').value,
+    tz: $('tz').value,
+    showFinished: $('showFinished').checked,
+    httpProxy: $('httpProxy').checked,
+    sources: sources.length === boxes.length ? null : sources,
+  };
+}
+
+$('test').onclick = async () => {
+  const m = $('testMsg');
+  m.className = 'msg'; m.textContent = 'Checking…';
+  const body = collect().xtream;
+  const r = await fetch('/api/test-xtream', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
+  m.className = 'msg ' + (r.ok ? 'ok' : 'err');
+  m.textContent = r.ok ? `✓ Active · ${r.channels} live channels · expires ${r.expires} · ${r.maxConnections} connection(s)` : `✗ ${r.error}`;
+};
+
+$('install').onclick = async () => {
+  const r = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(collect()) }).then((x) => x.json());
+  $('url').textContent = r.manifestUrl;
+  $('out').style.display = 'block';
+  $('open').onclick = () => { location.href = r.manifestUrl.replace(/^https?:\/\//, 'stremio://'); };
+  $('copy').onclick = () => navigator.clipboard.writeText(r.manifestUrl).then(() => { $('copy').textContent = 'Copied'; });
+  $('out').scrollIntoView({ behavior: 'smooth' });
+};
+
+(async function prefill() {
+  const m = location.pathname.match(/^\/([A-Za-z0-9_-]{20,})\/configure/);
+  let cfg = null;
+  if (m) cfg = await fetch('/api/config/' + m[1]).then((r) => r.json()).catch(() => null);
+  await loadSources(cfg && cfg.sources);
+  if (!cfg) return;
+  if (cfg.xtream) { $('server').value = cfg.xtream.server; $('username').value = cfg.xtream.username; $('password').value = cfg.xtream.password; }
+  $('iptvExt').value = cfg.iptvExt; $('cfbScope').value = cfg.cfbScope;
+  if (![...$('tz').options].some((o) => o.value === cfg.tz)) $('tz').add(new Option(cfg.tz, cfg.tz));
+  $('tz').value = cfg.tz; $('showFinished').checked = cfg.showFinished; $('httpProxy').checked = cfg.httpProxy;
+})();
+</script>
+</body>
+</html>

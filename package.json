@@ -1,0 +1,34 @@
+{
+  "name": "gameday",
+  "version": "1.0.0",
+  "description": "Nuvio/Stremio addon: College Football + UFC with free HTTP sources and your own Xtream IPTV",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test tests/*.test.js",
+    "probe": "node tools/probe.js"
+  },
+  "keywords": [
+    "stremio",
+    "nuvio",
+    "addon",
+    "college-football",
+    "ufc",
+    "iptv",
+    "xtream",
+    "hls",
+    "ncaa"
+  ],
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^5.3.0",
+    "sharp": "^0.35.5"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "author": "GameDay contributors",
+  "private": false
+}

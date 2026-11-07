@@ -1,0 +1,14 @@
+services:
+  gameday:
+    build: .
+    container_name: gameday
+    restart: unless-stopped
+    ports:
+      - "${PORT:-7000}:7000"
+    environment:
+      # Public https URL the addon is reached at (used in poster + relay links).
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      # Any long random string; keeps install links valid across rebuilds.
+      GAMEDAY_SECRET: ${GAMEDAY_SECRET:-}
+    volumes:
+      - ./data:/data
