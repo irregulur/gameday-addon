@@ -9,12 +9,35 @@ and TV network. Cards are generated server-side as 1280×720 JPEGs and update wh
 
 ## Install
 
+### One command on the Proxmox host
+
+Run this in the Proxmox VE **shell** (host root, not inside a VM). It creates a Debian 12 LXC
+container and installs GameDay inside it:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/irregulur/gameday-addon/main/proxmox.sh)"
+```
+
+Defaults: 2 vCPU / 2 GB RAM / 6 GB disk on `local-lvm`, DHCP on `vmbr0`, Docker inside the
+container. Override by prefixing the command:
+
+```bash
+RAM=4096 DISK=8 CTID=205 STORAGE=local-zfs \
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/irregulur/gameday-addon/main/proxmox.sh)"
+```
+
+Other knobs: `BRIDGE`, `HOSTNAME`, `PORT`, `NET="ip=192.168.1.50/24,gw=192.168.1.1"`, and
+`MODE=native` to skip Docker. The script prints the container IP, log/update/remove commands.
+
+### Inside an existing container, VM or server
+
 `install.sh` works on Debian/Ubuntu — a Proxmox **LXC container**, a VM, or bare metal.
 It installs Docker (or Node 22 + a systemd service with `--native`), generates a secret, builds
 and starts everything, and is safe to re-run for updates.
 
 **Proxmox LXC:** create a Debian 12 container with 1 GB RAM / 4 GB disk. For Docker, enable
 *Options → Features → nesting=1* in the container (or use `--native`, which needs no nesting).
+`proxmox.sh` does all of that for you.
 
 ```bash
 git clone <this repo> gameday && cd gameday
